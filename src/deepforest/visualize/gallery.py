@@ -308,9 +308,16 @@ def export_to_gallery(
     return metadata
 
 
-def write_gallery_html(savedir: str, title: str = "DeepForest Gallery") -> None:
+def write_gallery_html(
+    savedir: str, title: str = "DeepForest Gallery", page_size: int = 200
+) -> None:
     """Write a minimal single-file index.html that displays the thumbnails and
-    metadata."""
+    metadata.
+
+    page_size: number of thumbnails to render per "Load more" click. This
+    reduces initial DOM operations for large galleries (the full metadata is
+    still fetched, but rendering is incremental).
+    """
     html = f"""<!doctype html>
 <html>
 <head>
@@ -330,31 +337,52 @@ def write_gallery_html(savedir: str, title: str = "DeepForest Gallery") -> None:
   <div class="filters">
     <label>Label filter: <input id="labelFilter" placeholder="label substring"></label>
   </div>
-  <div id="grid" class="grid"></div>
-  <script>
-  async function load() {{
-    const res = await fetch('metadata.json');
-    const data = await res.json();
-    window._galleryData = data;
-    render(data);
-  }}
-  function render(data) {{
-    const grid = document.getElementById('grid');
-    grid.innerHTML = '';
-    const filter = document.getElementById('labelFilter').value.toLowerCase();
-    data.forEach(item => {{
-      if (filter && (!item.label || item.label.toLowerCase().indexOf(filter) === -1)) return;
-      const card = document.createElement('div'); card.className = 'card';
-      const img = document.createElement('img'); img.src = item.filename; card.appendChild(img);
-      const meta = document.createElement('div'); meta.className='meta';
-      meta.textContent = `${{item.label}} (id:${{item.crop_id}}) score:${{item.score}}`;
-      card.appendChild(meta);
-      grid.appendChild(card);
+    <div id="grid" class="grid"></div>
+    <div style="text-align:center; margin-top:8px;"><button id="loadMore">Load more</button></div>
+    <script>
+    async function load() {{
+        const res = await fetch('metadata.json');
+        const data = await res.json();
+        window._galleryData = data;
+        window._pageIndex = 0;
+        window._pageSize = {page_size};
+        renderPage();
+    }}
+    function renderItem(item) {{
+        const card = document.createElement('div'); card.className = 'card';
+        const img = document.createElement('img'); img.src = item.filename; card.appendChild(img);
+        const meta = document.createElement('div'); meta.className='meta';
+        meta.textContent = `${{item.label}} (id:${{item.crop_id}}) score:${{item.score}}`;
+        card.appendChild(meta);
+        return card;
+    }}
+    function renderPage() {{
+        const data = window._galleryData || [];
+        const grid = document.getElementById('grid');
+        const filter = document.getElementById('labelFilter').value.toLowerCase();
+        const start = window._pageIndex * window._pageSize;
+        const end = Math.min(start + window._pageSize, data.length);
+        for (let i = start; i < end; i++) {{
+            const item = data[i];
+            if (filter && (!item.label || item.label.toLowerCase().indexOf(filter) === -1)) continue;
+            grid.appendChild(renderItem(item));
+        }}
+        window._pageIndex += 1;
+        if (window._pageIndex * window._pageSize >= data.length) {{
+            document.getElementById('loadMore').style.display = 'none';
+        }} else {{
+            document.getElementById('loadMore').style.display = 'inline-block';
+        }}
+    }}
+    document.getElementById('labelFilter').addEventListener('input', () => {{
+        const grid = document.getElementById('grid');
+        grid.innerHTML = '';
+        window._pageIndex = 0;
+        renderPage();
     }});
-  }}
-  document.getElementById('labelFilter').addEventListener('input', () => render(window._galleryData || []));
-  load();
-  </script>
+    document.getElementById('loadMore').addEventListener('click', () => renderPage());
+    load();
+    </script>
 </body>
 </html>"""
 
