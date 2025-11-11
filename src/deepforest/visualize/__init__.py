@@ -1,43 +1,44 @@
-"""Visualization subpackage for DeepForest.
+"""Spotlight integration for DeepForest detection results.
 
-This package exposes visualization helpers. The gallery utilities live in
-``deepforest.visualize.gallery`` and are re-exported here for convenience.
+This module provides integration with Renumics Spotlight for interactive
+visualization of forest detection results.
 
-We provide an optional, opt-in loader for an older top-level ``visualize.py``
-file (used by older releases). Loading that legacy module is disabled by
-default; set the environment variable ``DEEPFOREST_LOAD_LEGACY_VISUALIZE=1``
-to enable it. Making the loader opt-in avoids surprising import-time side
-effects and keeps the package import fast and predictable.
+Example usage:
+
+    from deepforest.visualize import view_with_spotlight
+
+    # Convert predictions to Spotlight format
+    spotlight_data = view_with_spotlight(predictions_df)
+
+    # Or use DataFrame accessor
+    spotlight_data = predictions_df.spotlight()
 """
 
-import importlib.util
-import logging
-import os
-from collections.abc import Iterable
+# Import from the main visualize.py file
+import sys
+from pathlib import Path
 
-from .gallery import export_to_gallery, start_local_gallery, write_gallery_html
+from .gallery import export_to_gallery, write_gallery_html
+from .spotlight_adapter import view_with_spotlight
 
-__all__: list[str] = ["export_to_gallery", "write_gallery_html", "start_local_gallery"]
+# plot_results is provided by the (legacy) top-level module `visualize.py`.
+# We import it lazily here to maintain backward compatibility while avoiding
+# import-time dependency issues with the legacy module structure.
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
 
-# Optional legacy loader: only run when the environment variable is explicitly set.
-# This avoids unexpected import-time behavior and follows the principle of least
-# surprise for downstream consumers.
-_enable_legacy = os.environ.get("DEEPFOREST_LOAD_LEGACY_VISUALIZE", "0") == "1"
-if _enable_legacy:
-    _here = os.path.dirname(__file__)
-    _legacy_path = os.path.normpath(os.path.join(_here, "..", "visualize.py"))
-    if os.path.exists(_legacy_path):
-        spec = importlib.util.spec_from_file_location(
-            "deepforest._visualize_legacy", _legacy_path
-        )
-        legacy = importlib.util.module_from_spec(spec)
-        try:
-            spec.loader.exec_module(legacy)  # type: ignore[attr-defined]
-            # Re-export public names from legacy module but avoid overwriting current names
-            for _name in dir(legacy):
-                if _name.startswith("_") or _name in globals():
-                    continue
-                globals()[_name] = getattr(legacy, _name)
-                __all__.append(_name)
-        except Exception as e:  # pragma: no cover - best-effort import
-            logging.warning("Failed to load legacy visualize.py: %s", e)
+try:
+    from deepforest.visualize import plot_results
+except ImportError:
+    # Fallback if legacy visualize.py import fails
+    def plot_results(*args, **kwargs):
+        raise ImportError("plot_results function not available")
+
+
+__all__ = [
+    "export_to_gallery",
+    "plot_results",
+    "view_with_spotlight",
+    "write_gallery_html",
+]

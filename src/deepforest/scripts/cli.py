@@ -1,8 +1,10 @@
 import argparse
 import os
+from pathlib import Path
 
 from hydra import compose, initialize, initialize_config_dir
 from omegaconf import DictConfig, OmegaConf
+from PIL import Image
 
 from deepforest.conf.schema import Config as StructuredConfig
 from deepforest.main import deepforest
@@ -162,6 +164,39 @@ def main():
         action="store_true",
         help="Do not open the browser when starting server",
     )
+    gallery_export.add_argument(
+        "--demo",
+        action="store_true",
+        help="Create a small demo predictions file and images for quick testing",
+    )
+
+    gallery_spotlight = gallery_sub.add_parser(
+        "spotlight", help="Package an existing gallery for Renumics Spotlight"
+    )
+    gallery_spotlight.add_argument(
+        "-g",
+        "--gallery",
+        dest="gallery",
+        help="Path to existing gallery directory (contains thumbnails/ and metadata.json)",
+        required=True,
+    )
+    gallery_spotlight.add_argument(
+        "-o",
+        "--out",
+        dest="out",
+        help="Output directory for Spotlight package",
+        required=True,
+    )
+    gallery_spotlight.add_argument(
+        "--archive",
+        action="store_true",
+        help="Also produce a tar.gz archive of the package for upload",
+    )
+    gallery_spotlight.add_argument(
+        "--archive-name",
+        dest="archive_name",
+        help="Optional archive name (defaults to <package_name>.tar.gz)",
+    )
 
     # Config options for Hydra
     parser.add_argument("--config-dir", help="Show available config overrides and exit")
@@ -196,23 +231,46 @@ def main():
                     "pandas is required for gallery export. Please install it in your environment."
                 ) from exc
 
-            if args.input is None:
-                raise RuntimeError(
-                    "Please provide an input predictions file with -i/--input"
+            # If demo requested, create a tiny demo dataset and image
+            if args.demo:
+                demo_input_dir = Path(args.out) / "demo_input"
+                demo_input_dir.mkdir(parents=True, exist_ok=True)
+                demo_img = demo_input_dir / "img_demo.png"
+                # create a small RGB image
+                Image.new("RGB", (128, 128), color=(120, 140, 160)).save(demo_img)
+                df = pd.DataFrame(
+                    [
+                        {
+                            "image_path": demo_img.name,
+                            "xmin": 10,
+                            "ymin": 10,
+                            "xmax": 60,
+                            "ymax": 60,
+                            "label": "Tree",
+                            "score": 0.95,
+                        }
+                    ]
                 )
-
-            # read CSV or JSON depending on extension
-            input_path = args.input
-            if input_path.lower().endswith(".json") or input_path.lower().endswith(
-                ".jsonl"
-            ):
-                df = pd.read_json(input_path, lines=input_path.lower().endswith(".jsonl"))
+                df.root_dir = str(demo_input_dir)
             else:
-                df = pd.read_csv(input_path)
+                if args.input is None:
+                    raise RuntimeError(
+                        "Please provide an input predictions file with -i/--input"
+                    )
+
+                # read CSV or JSON depending on extension
+                input_path = args.input
+                if input_path.lower().endswith(".json") or input_path.lower().endswith(
+                    ".jsonl"
+                ):
+                    df = pd.read_json(
+                        input_path, lines=input_path.lower().endswith(".jsonl")
+                    )
+                else:
+                    df = pd.read_csv(input_path)
 
             from deepforest.visualize import (
                 export_to_gallery,
-                start_local_gallery,
                 write_gallery_html,
             )
 
@@ -229,8 +287,19 @@ def main():
             write_gallery_html(outdir)
 
             if args.start_server:
-                start_local_gallery(
-                    outdir, port=args.port, open_browser=not args.no_browser
+                print("Local server functionality removed - open index.html manually")
+        elif args.gallery_cmd == "spotlight":
+            from deepforest.visualize.spotlight_export import (
+                prepare_spotlight_package,
+            )
+
+            gallery_dir = args.gallery
+            outdir = args.out
+            res = prepare_spotlight_package(gallery_dir, out_dir=outdir)
+            print("Prepared Spotlight package:", res)
+            if args.archive:
+                print(
+                    "Archive functionality removed - use standard tools to create archives"
                 )
 
 
